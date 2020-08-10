@@ -17,7 +17,8 @@ const optionDefinitions = [
     { name: 'execute', alias: 'x', type: Boolean, description: 'Create new migration and execute it' },
     { name: 'migrations-path', type: String, description: 'The path to the migrations folder' },
     { name: 'models-path', type: String, description: 'The path to the models folder' },
-    { name: 'help', type: Boolean, description: 'Show this message' }
+    { name: 'help', type: Boolean, description: 'Show this message' },
+    { name: 'conn', type: String,description: 'Manually pass Sequelize Object with models attached'}
 ];
 
 const options = commandLineArgs(optionDefinitions);
@@ -39,7 +40,8 @@ if(!process.env.PWD){
 
 const {
     migrationsDir, 
-    modelsDir
+    modelsDir,
+    connDir
 } = pathConfig(options);
 
 if (!fs.existsSync(modelsDir)) {
@@ -69,18 +71,25 @@ try {
 } catch (e) { }
 
 //console.log(path.join(migrationsDir, '_current.json'), JSON.parse(fs.readFileSync(path.join(migrationsDir, '_current.json') )))
-let sequelize = require(modelsDir).sequelize;
+let sequelize;
+if(options.conn) {
+    sequelize = require(connDir);
+}else{
+    sequelize = require(modelsDir).sequelize;
+}
 
 let models = sequelize.models;
 
 currentState.tables = migrate.reverseModels(sequelize, models);
     
-let actions = migrate.parseDifference(previousState.tables, currentState.tables);
+let upActions = migrate.parseDifference(previousState.tables, currentState.tables);
+let downActions = migrate.parseDifference(currentState.tables, previousState.tables);
 
-// sort actions    
-migrate.sortActions(actions);
+// sort actions
+migrate.sortActions(upActions);
+migrate.sortActions(downActions);
 
-let migration = migrate.getMigration(actions);
+let migration = migrate.getMigration(upActions, downActions);
 
 if (migration.commandsUp.length === 0)
 {
@@ -120,7 +129,7 @@ console.log(`New migration to revision ${currentState.revision} has been saved t
 
 if (options.execute)
 {
-    migrate.executeMigration(sequelize.getQueryInterface(), info.filename, 0, (err) => {
+    migrate.executeMigration(sequelize.getQueryInterface(), info.filename, true, 0, false, (err) => {
         if (!err)
             console.log("Migration has been executed successfully");
         else
